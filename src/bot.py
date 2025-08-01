@@ -22,6 +22,7 @@ from src.admin_panel import (
 from src.category_management import category_management_handler
 from src.content_management import content_management_handler
 from src.user_flow import user_flow_handler
+from src.broadcast import broadcast_handler
 
 # تنظیمات اولیه لاگینگ
 # لاگ‌ها در این مرحله فقط در کنسول نمایش داده می‌شوند
@@ -54,6 +55,7 @@ def main() -> None:
     application.add_handler(category_management_handler)
     application.add_handler(content_management_handler)
     application.add_handler(user_flow_handler)
+    application.add_handler(broadcast_handler)
 
     # نمایش لاگ برای شروع به کار ربات
     logger.info("ربات با موفقیت شروع به کار کرد.")
