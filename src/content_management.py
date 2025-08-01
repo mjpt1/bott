@@ -274,7 +274,7 @@ content_management_handler = ConversationHandler(
             CallbackQueryHandler(content_view_or_delete_callback, pattern="^(view_content_|delete_content|content_page_)"),
         ],
         AWAIT_CONTENT: [
-            MessageHandler(filters.TEXT | filters.PHOTO | filters.VIDEO | filters.DOCUMENT, add_content_get_content)
+            MessageHandler(filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Document.ALL, add_content_get_content)
         ],
         AWAIT_CAPTION: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, add_content_get_caption)
