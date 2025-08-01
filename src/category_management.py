@@ -204,6 +204,7 @@ async def view_category_callback(update: Update, context: ContextTypes.DEFAULT_T
             InlineKeyboardButton("🔑 مدیریت رمز", callback_data=f"pass_cat_{category.id}"),
             InlineKeyboardButton("👤 مدیریت دسترسی", callback_data=f"access_cat_{category.id}"),
         ],
+        [InlineKeyboardButton("🗂️ مدیریت محتوا", callback_data=f"content_mgmt_{category.id}")],
         [InlineKeyboardButton("⬆️ بازگشت به لیست اصلی", callback_data="view_cat_root")],
     ])
 

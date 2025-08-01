@@ -12,6 +12,7 @@ from sqlalchemy import (
     BigInteger,
     ForeignKey,
     Table,
+    Text,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base, relationship
@@ -90,8 +91,31 @@ class Category(Base):
         back_populates="categories"
     )
 
+    # ارتباط با محتوا
+    contents = relationship("Content", back_populates="category", cascade="all, delete-orphan")
+
     def __repr__(self):
         return f"<Category(id={self.id}, name='{self.name}')>"
+
+# تعریف مدل محتوا (Content)
+class Content(Base):
+    """
+    مدل جدول محتوا. هر ردیف یک محتوای قابل ارائه در یک دسته‌بندی است.
+    """
+    __tablename__ = "contents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    file_type = Column(String, nullable=False) # e.g., 'text', 'photo', 'video', 'document'
+    telegram_file_id = Column(String, nullable=True, unique=True) # For files
+    text_content = Column(Text, nullable=True) # For text messages
+    caption = Column(Text, nullable=True)
+
+    # ارتباط با دسته‌بندی
+    category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
+    category = relationship("Category", back_populates="contents")
+
+    def __repr__(self):
+        return f"<Content(id={self.id}, type='{self.file_type}', category_id={self.category_id})>"
 
 
 async def init_db():
