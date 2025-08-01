@@ -2,6 +2,7 @@
 
 import logging
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from typing import Optional
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -92,7 +93,7 @@ async def add_category_get_parent(update: Update, context: ContextTypes.DEFAULT_
     await add_category_save(query, context, parent_id)
     return MAIN_MENU
 
-async def add_category_save(update_or_query, context: ContextTypes.DEFAULT_TYPE, parent_id: int | None):
+async def add_category_save(update_or_query, context: ContextTypes.DEFAULT_TYPE, parent_id: Optional[int]):
     """
     منطق ذخیره‌سازی دسته‌بندی جدید.
     """
