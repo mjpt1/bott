@@ -223,44 +223,6 @@ async def back_to_main_admin_panel(update: Update, context: ContextTypes.DEFAULT
     await admin_panel(update, context)
     return ConversationHandler.END
 
-
-# --- User-Side Conversation Handler ---
-user_support_handler = ConversationHandler(
-    entry_points=[CommandHandler("support", support_start)],
-    states={
-        AWAIT_FIRST_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_first_message)],
-        IN_TICKET: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ticket_message)],
-    },
-    fallbacks=[
-        CommandHandler("end_support", end_support_conversation),
-        CommandHandler("cancel", cancel_new_ticket)
-    ],
-    name="user_support_conv",
-    per_message=True,
-)
-
-# --- Admin-Side Conversation Handler ---
-admin_support_handler = ConversationHandler(
-    entry_points=[MessageHandler(filters.Regex("^پشتیبانی$"), support_admin_menu)],
-    states={
-        ADMIN_MAIN: [
-            MessageHandler(filters.Regex("^مشاهده تیکت‌های باز$"), view_open_tickets),
-            CallbackQueryHandler(view_ticket_conversation, pattern="^admin_view_ticket_")
-        ],
-        ADMIN_TICKET_VIEW: [
-            CallbackQueryHandler(ask_for_reply, pattern="^admin_reply_"),
-            CallbackQueryHandler(close_ticket, pattern="^admin_close_"),
-            CallbackQueryHandler(view_open_tickets, pattern="^admin_back_to_tickets$"),
-        ],
-        ADMIN_AWAIT_REPLY: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_reply)
-        ],
-    },
-    fallbacks=[MessageHandler(filters.Regex("^بازگشت به پنل اصلی$"), back_to_main_admin_panel)],
-    name="admin_support_conv",
-    per_message=True,
-)
-
 async def view_ticket_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Displays the full conversation for a single ticket.
@@ -390,3 +352,40 @@ async def close_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             await query.answer("خطا: تیکت یافت نشد.", show_alert=True)
 
     return await support_admin_menu(update, context)
+
+# --- User-Side Conversation Handler ---
+user_support_handler = ConversationHandler(
+    entry_points=[CommandHandler("support", support_start)],
+    states={
+        AWAIT_FIRST_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_first_message)],
+        IN_TICKET: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ticket_message)],
+    },
+    fallbacks=[
+        CommandHandler("end_support", end_support_conversation),
+        CommandHandler("cancel", cancel_new_ticket)
+    ],
+    name="user_support_conv",
+    per_message=True,
+)
+
+# --- Admin-Side Conversation Handler ---
+admin_support_handler = ConversationHandler(
+    entry_points=[MessageHandler(filters.Regex("^پشتیبانی$"), support_admin_menu)],
+    states={
+        ADMIN_MAIN: [
+            MessageHandler(filters.Regex("^مشاهده تیکت‌های باز$"), view_open_tickets),
+            CallbackQueryHandler(view_ticket_conversation, pattern="^admin_view_ticket_")
+        ],
+        ADMIN_TICKET_VIEW: [
+            CallbackQueryHandler(ask_for_reply, pattern="^admin_reply_"),
+            CallbackQueryHandler(close_ticket, pattern="^admin_close_"),
+            CallbackQueryHandler(view_open_tickets, pattern="^admin_back_to_tickets$"),
+        ],
+        ADMIN_AWAIT_REPLY: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_reply)
+        ],
+    },
+    fallbacks=[MessageHandler(filters.Regex("^بازگشت به پنل اصلی$"), back_to_main_admin_panel)],
+    name="admin_support_conv",
+    per_message=True,
+)
