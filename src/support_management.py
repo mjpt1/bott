@@ -347,7 +347,10 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await session.rollback()
             await update.message.reply_text(f"❌ خطایی در ارسال پیام به کاربر رخ داد: {e}")
 
-    # Mock an update object to go back to the ticket view
+    # Mock an update object to go back to the ticket view.
+    # NOTE: This is a workaround for navigating between different parts of a conversation.
+    # A more elegant solution might involve a larger refactor of the conversation flow,
+    # but this approach is functional and contained.
     class MockQuery:
         def __init__(self, message, data):
             self.message = message
