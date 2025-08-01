@@ -1,0 +1,70 @@
+# src/database.py
+
+import asyncio
+from datetime import datetime
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    BigInteger
+)
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.orm import declarative_base
+
+from src.config import DATABASE_URL
+
+# ایجاد موتور پایگاه داده آسنکرون
+# از `create_async_engine` برای کار با `aiosqlite` استفاده می‌شود
+async_engine = create_async_engine(DATABASE_URL)
+
+# ایجاد یک sessionmaker آسنکرون برای مدیریت نشست‌های پایگاه داده
+# expire_on_commit=False از جدا شدن اشیاء از نشست پس از کامیت جلوگیری می‌کند
+AsyncSessionLocal = async_sessionmaker(
+    bind=async_engine,
+    expire_on_commit=False,
+)
+
+# تعریف کلاس پایه برای مدل‌های SQLAlchemy
+# تمام مدل‌های ما از این کلاس ارث‌بری خواهند کرد
+Base = declarative_base()
+
+
+# تعریف مدل کاربر (User)
+class User(Base):
+    """
+    مدل جدول کاربران در پایگاه داده.
+    این جدول اطلاعات کاربران ثبت‌نام کرده را ذخیره می‌کند.
+    """
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(BigInteger, unique=True, nullable=False, index=True) # شناسه عددی کاربر در تلگرام
+    full_name = Column(String, nullable=False) # نام کامل کاربر
+    nft_code = Column(String, nullable=False, unique=True) # کد NFT کاربر
+    wallet_address = Column(String, nullable=False, unique=True) # آدرس کیف پول کاربر
+    is_approved = Column(Boolean, default=False) # وضعیت تایید توسط ادمین
+    is_blocked = Column(Boolean, default=False) # وضعیت مسدود بودن کاربر
+    is_admin = Column(Boolean, default=False) # آیا کاربر ادمین است؟
+    created_at = Column(DateTime, default=datetime.utcnow) # زمان ثبت‌نام
+
+    def __repr__(self):
+        return f"<User(id={self.id}, user_id={self.user_id}, full_name='{self.full_name}')>"
+
+
+async def init_db():
+    """
+    تابع آسنکرون برای مقداردهی اولیه پایگاه داده.
+    این تابع تمام جداول تعریف‌شده در مدل‌ها را ایجاد می‌کند.
+    """
+    async with async_engine.begin() as conn:
+        # `run_sync` متدهای همزمان SQLAlchemy را در یک محیط آسنکرون اجرا می‌کند
+        await conn.run_sync(Base.metadata.create_all)
+
+# اجرای تابع init_db برای ایجاد جداول در اولین اجرای برنامه
+# این کار را می‌توان به یک اسکریپت جداگانه نیز منتقل کرد
+if __name__ == "__main__":
+    asyncio.run(init_db())
+    print("پایگاه داده و جداول با موفقیت ایجاد شدند.")
