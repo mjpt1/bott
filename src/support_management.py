@@ -10,6 +10,7 @@ from telegram.ext import (
     filters,
 )
 
+from src.decorators import admin_only
 from src.database import AsyncSessionLocal, User, SupportTicket, SupportMessage
 from src import config
 from sqlalchemy.future import select
