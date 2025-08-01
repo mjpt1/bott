@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 admin_keyboard = [
     ["تایید کاربران منتظر", "لیست تمام کاربران"],
     ["مدیریت دسته‌بندی‌ها", "ارسال همگانی"],
-    ["آمار ربات", "بازگشت به منوی اصلی"],
+    ["پشتیبانی", "آمار ربات"],
+    ["بازگشت به منوی اصلی"],
 ]
 admin_markup = ReplyKeyboardMarkup(admin_keyboard, resize_keyboard=True)
 

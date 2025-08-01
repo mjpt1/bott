@@ -65,6 +65,9 @@ class User(Base):
         back_populates="users"
     )
 
+    # ارتباط با تیکت‌های پشتیبانی
+    support_tickets = relationship("SupportTicket", back_populates="user", cascade="all, delete-orphan")
+
     def __repr__(self):
         return f"<User(id={self.id}, user_id={self.user_id}, full_name='{self.full_name}')>"
 
@@ -116,6 +119,31 @@ class Content(Base):
 
     def __repr__(self):
         return f"<Content(id={self.id}, type='{self.file_type}', category_id={self.category_id})>"
+
+
+# تعریف مدل تیکت پشتیبانی (SupportTicket)
+class SupportTicket(Base):
+    __tablename__ = 'support_tickets'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    is_open = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="support_tickets")
+    messages = relationship("SupportMessage", back_populates="ticket", cascade="all, delete-orphan")
+
+# تعریف مدل پیام پشتیبانی (SupportMessage)
+class SupportMessage(Base):
+    __tablename__ = 'support_messages'
+    id = Column(Integer, primary_key=True)
+    ticket_id = Column(Integer, ForeignKey('support_tickets.id'), nullable=False)
+    telegram_message_id = Column(BigInteger, nullable=False)
+    chat_id = Column(BigInteger, nullable=False)
+    text = Column(Text, nullable=True)
+    sender_is_admin = Column(Boolean, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("SupportTicket", back_populates="messages")
 
 
 async def init_db():
