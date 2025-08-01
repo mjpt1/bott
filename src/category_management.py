@@ -12,13 +12,15 @@ from telegram.ext import (
 )
 
 from src.decorators import admin_only
-from src.database import AsyncSessionLocal, Category
+from src.database import AsyncSessionLocal, Category, User
+from src.security import hash_password
 from sqlalchemy.future import select
+from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
 
 # --- Conversation States ---
-MAIN_MENU, ADD_CATEGORY_NAME, ADD_CATEGORY_PARENT = range(3)
+MAIN_MENU, ADD_CATEGORY_NAME, ADD_CATEGORY_PARENT, EDIT_CATEGORY_NAME, SET_PASSWORD, MANAGE_ACCESS = range(6)
 
 
 # --- Keyboards ---
@@ -208,6 +210,299 @@ async def view_category_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     return MAIN_MENU
 
+async def delete_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    درخواست تایید برای حذف یک دسته‌بندی.
+    """
+    query = update.callback_query
+    await query.answer()
+    category_id = int(query.data.split("_")[2])
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ بله، حذف کن", callback_data=f"delete_confirm_{category_id}"),
+            InlineKeyboardButton(" خیر", callback_data=f"view_cat_{category_id}") # Go back to the category view
+        ]
+    ]
+    await query.edit_message_text(
+        "آیا از حذف این دسته‌بندی مطمئن هستید؟\n\n"
+        "⚠️ **توجه:** اگر این دسته‌بندی شامل زیرمجموعه‌هایی باشد، حذف نخواهد شد.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    حذف نهایی دسته‌بندی پس از تایید.
+    """
+    query = update.callback_query
+    await query.answer()
+    category_id = int(query.data.split("_")[2])
+
+    async with AsyncSessionLocal() as session:
+        # بررسی وجود زیرمجموعه‌ها
+        result = await session.execute(select(Category).where(Category.parent_id == category_id))
+        if result.scalars().first():
+            await query.edit_message_text("❌ این دسته‌بندی شامل زیرمجموعه است و قابل حذف نیست. لطفاً ابتدا زیرمجموعه‌های آن را حذف کنید.")
+            # Show the root categories again
+            await view_categories(update, context)
+            return
+
+        # حذف دسته‌بندی
+        category_to_delete = await session.get(Category, category_id)
+        if category_to_delete:
+            category_name = category_to_delete.name
+            await session.delete(category_to_delete)
+            await session.commit()
+            logger.info(f"Category '{category_name}' (ID: {category_id}) was deleted by an admin.")
+            await query.edit_message_text(f"✅ دسته‌بندی '{category_name}' با موفقیت حذف شد.")
+        else:
+            await query.edit_message_text("❌ خطایی در حذف رخ داد: دسته‌بندی یافت نشد.")
+
+    # نمایش مجدد لیست دسته‌بندی‌های اصلی
+    class MockUpdate:
+        def __init__(self, message):
+            self.message = message
+    await view_categories(MockUpdate(query.message), context)
+
+
+# --- "Edit Category" Flow ---
+async def edit_category_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    شروع فرآیند ویرایش نام دسته‌بندی.
+    """
+    query = update.callback_query
+    await query.answer()
+    category_id = int(query.data.split("_")[2])
+    context.user_data['category_to_edit'] = category_id
+
+    await query.message.reply_text(
+        "لطفاً نام جدید را برای این دسته‌بندی وارد کنید. برای لغو /cancel را بزنید."
+    )
+    return EDIT_CATEGORY_NAME
+
+async def edit_category_get_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    دریافت نام جدید و به‌روزرسانی پایگاه داده.
+    """
+    new_name = update.message.text
+    category_id = context.user_data.get('category_to_edit')
+
+    async with AsyncSessionLocal() as session:
+        category = await session.get(Category, category_id)
+        if category:
+            original_name = category.name
+            category.name = new_name
+            try:
+                await session.commit()
+                message = f"✅ نام دسته‌بندی از '{original_name}' به '{new_name}' با موفقیت تغییر کرد."
+                logger.info(f"Category {category_id} renamed from '{original_name}' to '{new_name}'.")
+            except Exception as e:
+                await session.rollback()
+                message = f"❌ خطایی در تغییر نام رخ داد. احتمالاً نام جدید تکراری است.\n{e}"
+                logger.error(f"Error renaming category {category_id}: {e}")
+        else:
+            message = "❌ دسته‌بندی مورد نظر برای ویرایش یافت نشد."
+
+    await update.message.reply_text(message)
+    context.user_data.pop('category_to_edit', None)
+
+    # Show the main category menu again
+    await category_management_menu(update, context)
+    return MAIN_MENU
+
+
+# --- Password Management Flow ---
+async def password_menu_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    نمایش منوی مدیریت رمز عبور برای یک دسته‌بندی.
+    """
+    query = update.callback_query
+    await query.answer()
+    category_id = int(query.data.split("_")[2])
+    context.user_data['category_for_pass'] = category_id
+
+    async with AsyncSessionLocal() as session:
+        category = await session.get(Category, category_id)
+
+    if not category:
+        await query.edit_message_text("خطا: دسته‌بندی یافت نشد.")
+        return MAIN_MENU
+
+    text = f"مدیریت رمز برای دسته‌بندی: *{category.name}*"
+    keyboard = []
+    if category.password:
+        keyboard.append([InlineKeyboardButton("🔄 تغییر رمز", callback_data="set_pass_change")])
+        keyboard.append([InlineKeyboardButton("🗑 حذف رمز", callback_data="set_pass_remove")])
+    else:
+        keyboard.append([InlineKeyboardButton("➕ افزودن رمز", callback_data="set_pass_change")])
+
+    keyboard.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"view_cat_{category_id}")])
+
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    return MAIN_MENU
+
+async def ask_for_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    درخواست از کاربر برای ارسال رمز جدید.
+    """
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text("لطفاً رمز عبور جدید را وارد کنید. برای لغو /cancel را بزنید.")
+    return SET_PASSWORD
+
+async def set_password_get_pass(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    دریافت رمز جدید، هش کردن و ذخیره در پایگاه داده.
+    """
+    password = update.message.text
+    category_id = context.user_data.get('category_for_pass')
+
+    hashed = hash_password(password)
+
+    async with AsyncSessionLocal() as session:
+        category = await session.get(Category, category_id)
+        if category:
+            category.password = hashed
+            await session.commit()
+            message = "✅ رمز عبور با موفقیت برای دسته‌بندی تنظیم شد."
+            logger.info(f"Password set for category {category_id}.")
+        else:
+            message = "❌ خطایی در تنظیم رمز رخ داد: دسته‌بندی یافت نشد."
+
+    await update.message.reply_text(message)
+    context.user_data.pop('category_for_pass', None)
+
+    await category_management_menu(update, context)
+    return MAIN_MENU
+
+async def remove_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    حذف رمز عبور از یک دسته‌بندی.
+    """
+    query = update.callback_query
+    await query.answer()
+    category_id = context.user_data.get('category_for_pass')
+
+    async with AsyncSessionLocal() as session:
+        category = await session.get(Category, category_id)
+        if category:
+            category.password = None
+            await session.commit()
+            message = "✅ رمز عبور با موفقیت حذف شد."
+            logger.info(f"Password removed for category {category_id}.")
+        else:
+            message = "❌ خطایی در حذف رمز رخ داد: دسته‌بندی یافت نشد."
+
+    await query.edit_message_text(message)
+    context.user_data.pop('category_for_pass', None)
+
+    await category_management_menu(update, context)
+    return MAIN_MENU
+
+
+# --- Access Management Flow ---
+USERS_PER_PAGE = 5
+
+async def manage_access_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Entry point for the access management sub-conversation.
+    """
+    query = update.callback_query
+    await query.answer()
+    category_id = int(query.data.split("_")[2])
+    context.user_data['category_for_access'] = category_id
+
+    await list_users_for_access(query, context, page=0)
+    return MANAGE_ACCESS
+
+async def list_users_for_access(query, context: ContextTypes.DEFAULT_TYPE, page: int):
+    """
+    Displays a paginated list of users with their access status for a category.
+    """
+    category_id = context.user_data['category_for_access']
+
+    async with AsyncSessionLocal() as session:
+        # Get the category name
+        category = await session.get(Category, category_id)
+        if not category:
+            await query.edit_message_text("خطا: دسته‌بندی یافت نشد.")
+            return
+
+        # Get the paginated list of approved users
+        users_result = await session.execute(
+            select(User).where(User.is_approved == True).order_by(User.id).offset(page * USERS_PER_PAGE).limit(USERS_PER_PAGE)
+        )
+        users_on_page = users_result.scalars().all()
+
+        # Get total count of approved users for pagination
+        total_users_count = (await session.execute(select(func.count(User.id)).where(User.is_approved == True))).scalar()
+
+        # Get IDs of users who already have access
+        access_result = await session.execute(
+            select(User.id).join(User.categories).where(Category.id == category_id)
+        )
+        users_with_access_ids = {row[0] for row in access_result}
+
+    text = f"مدیریت دسترسی برای: *{category.name}* (صفحه {page + 1})\n"
+    keyboard = []
+    for user in users_on_page:
+        access_status_icon = "✅" if user.id in users_with_access_ids else "❌"
+        button_text = f"{access_status_icon} {user.full_name}"
+        callback_data = f"toggle_access_{user.id}_{page}"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+
+    # Pagination buttons
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"access_page_{page - 1}"))
+    if (page + 1) * USERS_PER_PAGE < total_users_count:
+        nav_buttons.append(InlineKeyboardButton("بعدی ➡️", callback_data=f"access_page_{page + 1}"))
+
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    keyboard.append([InlineKeyboardButton("⬅️ بازگشت به دسته‌بندی", callback_data=f"view_cat_{category_id}")])
+
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def manage_access_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Handles all callbacks within the MANAGE_ACCESS state (pagination and toggling).
+    """
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data.startswith("access_page_"):
+        page = int(data.split("_")[2])
+        await list_users_for_access(query, context, page=page)
+
+    elif data.startswith("toggle_access_"):
+        _, user_id_str, page_str = data.split("_")
+        user_id = int(user_id_str)
+        page = int(page_str)
+        category_id = context.user_data['category_for_access']
+
+        async with AsyncSessionLocal() as session:
+            user = await session.get(User, user_id)
+            category = await session.get(Category, category_id)
+
+            if user and category:
+                if category in user.categories:
+                    user.categories.remove(category)
+                    logger.info(f"Access removed for user {user_id} from category {category_id}.")
+                else:
+                    user.categories.append(category)
+                    logger.info(f"Access granted for user {user_id} to category {category_id}.")
+                await session.commit()
+
+        # Refresh the list
+        await list_users_for_access(query, context, page=page)
+
+    return MANAGE_ACCESS
+
+
 async def handle_coming_soon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles buttons for features that are not yet implemented."""
     query = update.callback_query
@@ -233,13 +528,29 @@ category_management_handler = ConversationHandler(
             MessageHandler(filters.Regex("^➕ افزودن دسته‌بندی$"), add_category_start),
             MessageHandler(filters.Regex("^👁 مشاهده دسته‌بندی‌ها$"), view_categories),
             CallbackQueryHandler(view_category_callback, pattern="^view_cat_"),
-            CallbackQueryHandler(handle_coming_soon, pattern="^(edit_cat|delete_cat|pass_cat|access_cat)_"),
+            CallbackQueryHandler(delete_category_start, pattern="^delete_cat_"),
+            CallbackQueryHandler(delete_category_confirm, pattern="^delete_confirm_"),
+            CallbackQueryHandler(edit_category_start, pattern="^edit_cat_"),
+            CallbackQueryHandler(password_menu_start, pattern="^pass_cat_"),
+            CallbackQueryHandler(ask_for_password, pattern="^set_pass_change$"),
+            CallbackQueryHandler(remove_password, pattern="^set_pass_remove$"),
+            CallbackQueryHandler(manage_access_start, pattern="^access_cat_"),
         ],
         ADD_CATEGORY_NAME: [
             MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^لغو$"), add_category_get_name)
         ],
         ADD_CATEGORY_PARENT: [
             CallbackQueryHandler(add_category_get_parent, pattern="^add_cat_parent_")
+        ],
+        EDIT_CATEGORY_NAME: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, edit_category_get_name)
+        ],
+        SET_PASSWORD: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, set_password_get_pass)
+        ],
+        MANAGE_ACCESS: [
+            CallbackQueryHandler(manage_access_callback_handler, pattern="^(toggle_access|access_page)_"),
+            CallbackQueryHandler(view_category_callback, pattern="^view_cat_") # To handle the "Back" button
         ],
     },
     fallbacks=[
