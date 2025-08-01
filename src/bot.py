@@ -24,13 +24,18 @@ from src.content_management import content_management_handler
 from src.user_flow import user_flow_handler
 from src.broadcast import broadcast_handler
 from src.support_management import user_support_handler, admin_support_handler
+from src.statistics import statistics_handler
+from src.logging_utils import setup_logging
 
-# تنظیمات اولیه لاگینگ
-# لاگ‌ها در این مرحله فقط در کنسول نمایش داده می‌شوند
+# Call the setup function to configure logging
+setup_logging()
+
+# Also set up basic config for console logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
+
 logger = logging.getLogger(__name__)
 
 def main() -> None:
@@ -59,6 +64,7 @@ def main() -> None:
     application.add_handler(broadcast_handler)
     application.add_handler(user_support_handler)
     application.add_handler(admin_support_handler)
+    application.add_handler(statistics_handler)
 
     # نمایش لاگ برای شروع به کار ربات
     logger.info("ربات با موفقیت شروع به کار کرد.")
