@@ -19,6 +19,7 @@ from src.admin_panel import (
     block_unblock_callback_handler,
     user_info_callback_handler,
 )
+from src.category_management import category_management_handler
 
 # تنظیمات اولیه لاگینگ
 # لاگ‌ها در این مرحله فقط در کنسول نمایش داده می‌شوند
@@ -48,6 +49,7 @@ def main() -> None:
     application.add_handler(list_users_callback_handler)
     application.add_handler(block_unblock_callback_handler)
     application.add_handler(user_info_callback_handler)
+    application.add_handler(category_management_handler)
 
     # نمایش لاگ برای شروع به کار ربات
     logger.info("ربات با موفقیت شروع به کار کرد.")

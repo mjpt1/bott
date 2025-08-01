@@ -9,10 +9,12 @@ from sqlalchemy import (
     String,
     Boolean,
     DateTime,
-    BigInteger
+    BigInteger,
+    ForeignKey,
+    Table,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, relationship
 
 from src.config import DATABASE_URL
 
@@ -31,27 +33,65 @@ AsyncSessionLocal = async_sessionmaker(
 # تمام مدل‌های ما از این کلاس ارث‌بری خواهند کرد
 Base = declarative_base()
 
+# جدول واسط برای ارتباط چند به چند بین کاربران و دسته‌بندی‌ها
+user_category_association = Table(
+    'user_category_association', Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id')),
+    Column('category_id', Integer, ForeignKey('categories.id'))
+)
 
 # تعریف مدل کاربر (User)
 class User(Base):
     """
     مدل جدول کاربران در پایگاه داده.
-    این جدول اطلاعات کاربران ثبت‌نام کرده را ذخیره می‌کند.
     """
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(BigInteger, unique=True, nullable=False, index=True) # شناسه عددی کاربر در تلگرام
-    full_name = Column(String, nullable=False) # نام کامل کاربر
-    nft_code = Column(String, nullable=False, unique=True) # کد NFT کاربر
-    wallet_address = Column(String, nullable=False, unique=True) # آدرس کیف پول کاربر
-    is_approved = Column(Boolean, default=False) # وضعیت تایید توسط ادمین
-    is_blocked = Column(Boolean, default=False) # وضعیت مسدود بودن کاربر
-    is_admin = Column(Boolean, default=False) # آیا کاربر ادمین است؟
-    created_at = Column(DateTime, default=datetime.utcnow) # زمان ثبت‌نام
+    user_id = Column(BigInteger, unique=True, nullable=False, index=True)
+    full_name = Column(String, nullable=False)
+    nft_code = Column(String, nullable=False, unique=True)
+    wallet_address = Column(String, nullable=False, unique=True)
+    is_approved = Column(Boolean, default=False)
+    is_blocked = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # تعریف ارتباط با دسته‌بندی‌ها
+    categories = relationship(
+        "Category",
+        secondary=user_category_association,
+        back_populates="users"
+    )
 
     def __repr__(self):
         return f"<User(id={self.id}, user_id={self.user_id}, full_name='{self.full_name}')>"
+
+# تعریف مدل دسته‌بندی (Category)
+class Category(Base):
+    """
+    مدل جدول دسته‌بندی‌ها.
+    """
+    __tablename__ = "categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    password = Column(String, nullable=True)  # برای دسته‌بندی‌های محافظت‌شده
+
+    # برای ساختن ساختار درختی (پدر و فرزندی)
+    parent_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
+    parent = relationship('Category', remote_side=[id], back_populates='subcategories')
+    subcategories = relationship('Category', back_populates='parent')
+
+    # تعریف ارتباط با کاربران
+    users = relationship(
+        "User",
+        secondary=user_category_association,
+        back_populates="categories"
+    )
+
+    def __repr__(self):
+        return f"<Category(id={self.id}, name='{self.name}')>"
 
 
 async def init_db():
